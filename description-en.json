@@ -1,4 +1,5 @@
 {
+  "description": "Exports simulated order outputs from the trading simulator singleton for evaluation and downstream analysis.",
   "domainCategory": "Trading",
   "subjectiveTechnologyElement": "Pipelines",
   "publisher": "BrainBoost Ltd.",
@@ -9,7 +10,7 @@
     {
       "type": "splitList",
       "title": "Simulator Outputs",
-      "text": "Subjective datasource implementation for SubjectiveSimulatorOutputsDataSource.",
+      "text": "Exports simulated order outputs from the trading simulator singleton for evaluation and downstream analysis.",
       "image": {
         "src": "/subjective_simulator_outputs_datasource/icon.svg",
         "alt": "Simulator Outputs icon"
