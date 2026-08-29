@@ -1,49 +1,47 @@
-import time
-from subjective_abstract_data_source_package.SubjectiveDataSource import SubjectiveDataSource
-from brainboost_data_source_logger_package.BBLogger import BBLogger
+import sys
+from decimal import Decimal
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from subjective_abstract_data_source_package import SubjectiveDataSource
+
+from trading_contracts.order import Fill, validate_order
+from trading_contracts.plugin_support import icon_for
 
 
 class SubjectiveSimulatorOutputsDataSource(SubjectiveDataSource):
-    connection_type = "Simulator"
-    connection_fields = ["symbol", "start_date", "end_date"]
-    icon_svg = "<svg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='12' r='9' fill='#2d6a4f'/><path d='M7 12h10' stroke='#ffffff' stroke-width='2'/></svg>"
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-    def get_icon(self):
-        return self.icon_svg
+    @classmethod
+    def connection_schema(cls):
+        return {"fee_pct": {"type": "number", "label": "Fee Percent", "default": 0}}
 
-    def get_connection_data(self):
-        return {"connection_type": self.connection_type, "fields": list(self.connection_fields)}
+    @classmethod
+    def request_schema(cls):
+        return {"orders": {"type": "array", "label": "Orders", "required": True}, "mark_price": {"type": "text", "label": "Mark Price", "required": True}}
 
-    def _emit_result(self, result):
-        if result is None:
-            self.set_total_items(0)
-            self.set_processed_items(0)
-            return
-        if isinstance(result, (list, tuple)):
-            self.set_total_items(len(result))
-            self.set_processed_items(0)
-            for item in result:
-                self.update(item)
-                self.increment_processed_items()
-            return
-        self.set_total_items(1)
-        self.set_processed_items(0)
-        self.update(result)
-        self.increment_processed_items()
+    @classmethod
+    def output_schema(cls):
+        return {"fills": {"type": "array", "label": "Paper Fills"}, "errors": {"type": "array", "label": "Errors"}}
 
-    def fetch(self):
-        start = time.perf_counter()
-        if self.status_callback:
-            self.status_callback(self.get_name(), "fetch_started")
-        from com_goldenthinker_trade_simulator.Simulator import Simulator
+    @classmethod
+    def icon(cls):
+        return icon_for(__file__)
 
-        simulator = Simulator.get_instance()
-        self._emit_result({"orders": simulator._orders})
-        duration = time.perf_counter() - start
-        self.set_total_processing_time(duration)
-        self.set_fetch_completed(True)
-        if self.progress_callback:
-            self.progress_callback(self.get_name(), self.get_total_to_process(), self.get_total_processed(), self.estimated_remaining_time())
-        if self.status_callback:
-            self.status_callback(self.get_name(), "fetch_completed")
-        BBLogger.log(f"Fetch completed for {self.get_name()}")
+    def run(self, request):
+        request = request or {}
+        mark_price = str(request.get("mark_price") or "0")
+        fee_pct = Decimal(str(request.get("fee_pct", self._connection.get("fee_pct", 0))))
+        fills, errors = [], []
+        for candidate in request.get("orders") or ([request["order"]] if request.get("order") else []):
+            try:
+                order = validate_order(candidate)
+                price = Decimal(mark_price)
+                qty = order.get("qty") or (format(Decimal(order["quote_amt"]) / price, "f") if price else "0")
+                fee = Decimal(str(qty)) * price * fee_pct / Decimal("100")
+                fills.append(Fill(order["order_id"], order["client_order_id"], f"paper:{order['client_order_id']}", "PAPER_FILLED", str(qty), mark_price, format(fee, "f"), {}).to_dict())
+            except Exception as exc:
+                errors.append({"order": candidate, "error": str(exc)})
+        return {"fills": fills, "errors": errors}
